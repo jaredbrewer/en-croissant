@@ -37,6 +37,7 @@ use shakmaty::{
 use specta::Type;
 use std::{
     fs::{remove_file, File, OpenOptions},
+    ops::ControlFlow,
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
@@ -586,6 +587,7 @@ pub async fn convert_pgn(
         };
 
         let mut importer = Importer::new(timestamp.map(|t| t as i64));
+        let mut reader = Reader::new(uncompressed);
         let mut file_imported_games = 0usize;
 
         db.transaction::<_, diesel::result::Error, _>(|db| {
@@ -606,8 +608,6 @@ pub async fn convert_pgn(
                     )
                     .unwrap();
                 }
-                game.insert_to_db(db)?;
-                file_imported_games += 1;
             }
             Ok(())
         })?;
@@ -1969,7 +1969,6 @@ pub async fn preload_reference_db(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pgn_reader::BufferedReader;
 
     #[test]
     fn home_row() {
@@ -2001,11 +2000,13 @@ mod tests {
 "#;
 
         let mut importer = Importer::new(None);
-        let games: Vec<TempGame> = BufferedReader::new(pgn.as_bytes())
-            .into_iter(&mut importer)
-            .flatten()
-            .flatten()
-            .collect();
+        let mut reader = Reader::new(pgn.as_bytes());
+        let mut games: Vec<TempGame> = Vec::new();
+        while let Ok(Some(result)) = reader.read_game(&mut importer) {
+            if let Some(game) = result {
+                games.push(game);
+            }
+        }
 
         assert_eq!(games.len(), 1);
         let movetext = decode_game_to_movetext(&games[0].moves, Fen::default()).unwrap();
@@ -2027,11 +2028,13 @@ mod tests {
 "#;
 
         let mut importer = Importer::new(None);
-        let games: Vec<TempGame> = BufferedReader::new(pgn.as_bytes())
-            .into_iter(&mut importer)
-            .flatten()
-            .flatten()
-            .collect();
+        let mut reader = Reader::new(pgn.as_bytes());
+        let mut games: Vec<TempGame> = Vec::new();
+        while let Ok(Some(result)) = reader.read_game(&mut importer) {
+            if let Some(game) = result {
+                games.push(game);
+            }
+        }
 
         assert_eq!(games.len(), 1);
         let movetext = decode_game_to_movetext(&games[0].moves, Fen::default()).unwrap();

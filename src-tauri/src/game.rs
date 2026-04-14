@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, Cursor, Read, Write},
+    ops::ControlFlow,
     path::PathBuf,
     sync::Arc,
     time::Instant,
@@ -14,9 +15,7 @@ use std::ops::ControlFlow;
 use polyglot_book_rs::PolyglotBook;
 use rand::{seq::IteratorRandom, Rng};
 use serde::{Deserialize, Serialize};
-use shakmaty::{
-    fen::Fen, san::SanPlus, uci::UciMove, CastlingMode, Chess, Color, EnPassantMode, Position,
-};
+use shakmaty::{fen::Fen, uci::UciMove, CastlingMode, Chess, Color, EnPassantMode, Position};
 use specta::Type;
 use tauri::AppHandle;
 use tauri_specta::Event;

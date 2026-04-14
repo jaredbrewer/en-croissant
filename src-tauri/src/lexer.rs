@@ -3,6 +3,7 @@ use std::ops::ControlFlow;
 use pgn_reader::{Nag, RawTag, Reader, SanPlus, Skip, Visitor};
 use serde::Serialize;
 use specta::Type;
+use std::ops::ControlFlow;
 
 use crate::error::Error;
 

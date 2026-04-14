@@ -8,6 +8,7 @@ mod db;
 mod engine;
 mod error;
 mod game;
+mod onnx;
 
 mod fs;
 mod lexer;
@@ -28,6 +29,7 @@ use maia_rust::Maia;
 use db::{DatabaseProgress, GameQuery, NormalizedGame, PositionStats};
 use derivative::Derivative;
 use game::GameManager;
+use maia_rust::Maia;
 use progress::{clear_progress, get_progress, ProgressEvent, ProgressStore};
 
 use log::LevelFilter;
@@ -68,6 +70,7 @@ use crate::{
         write_db_game,
     },
     fs::{download_file, file_exists, get_file_metadata},
+    onnx::{init_ort_log_level, maia_best_moves, maia_eval, maia_eval_batch},
     opening::{
         get_opening_from_fen, get_opening_from_fens, get_opening_from_name, search_opening_name,
     },
@@ -91,6 +94,7 @@ pub struct AppState {
     pgn_offsets: DashMap<String, Vec<u64>>,
 
     engine_processes: DashMap<(String, String), Arc<tokio::sync::Mutex<EngineProcess>>>,
+    maia_sessions: DashMap<(String, String), Maia>,
     analysis_cancel_flags: DashMap<String, Arc<AtomicBool>>,
     maia_sessions: DashMap<(String, String), Maia>,
     auth: AuthState,
@@ -223,9 +227,6 @@ fn main() {
         .plugin(tauri_plugin_os::init())
         .setup(move |app| {
             log::info!("Setting up application");
-
-            // #[cfg(any(windows, target_os = "macos"))]
-            // set_shadow(&app.get_webview_window("main").unwrap(), true).unwrap();
 
             specta_builder.mount_events(app);
 
