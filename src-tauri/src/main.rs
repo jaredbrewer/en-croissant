@@ -13,6 +13,7 @@ mod onnx;
 mod fs;
 mod lexer;
 mod oauth;
+mod onnx;
 mod opening;
 mod pgn;
 mod progress;
@@ -24,6 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use chess::{BestMovesPayload, EngineProcess};
 use dashmap::DashMap;
+use maia_rust::Maia;
 use db::{DatabaseProgress, GameQuery, NormalizedGame, PositionStats};
 use derivative::Derivative;
 use game::GameManager;
@@ -94,6 +96,7 @@ pub struct AppState {
     engine_processes: DashMap<(String, String), Arc<tokio::sync::Mutex<EngineProcess>>>,
     maia_sessions: DashMap<(String, String), Maia>,
     analysis_cancel_flags: DashMap<String, Arc<AtomicBool>>,
+    maia_sessions: DashMap<(String, String), Maia>,
     auth: AuthState,
     game_manager: GameManager,
     progress_state: ProgressStore,
@@ -111,7 +114,7 @@ async fn close_splashscreen(window: Window) -> Result<(), String> {
 }
 
 fn main() {
-    init_ort_log_level();
+    onnx::init_ort_log_level();
 
     let specta_builder = tauri_specta::Builder::new()
         .commands(tauri_specta::collect_commands!(
@@ -175,9 +178,9 @@ fn main() {
             get_progress,
             clear_progress,
             get_sound_server_port,
-            maia_eval,
-            maia_eval_batch,
-            maia_best_moves,
+            onnx::maia_eval,
+            onnx::maia_eval_batch,
+            onnx::maia_best_moves
         ))
         .events(tauri_specta::collect_events!(
             BestMovesPayload,

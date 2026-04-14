@@ -10,7 +10,8 @@ use std::{
 
 use dashmap::DashMap;
 use log::{error, info};
-use pgn_reader::{RawTag, Reader, SanPlus, Visitor};
+use pgn_reader::{RawTag, Reader, Visitor};
+use std::ops::ControlFlow;
 use polyglot_book_rs::PolyglotBook;
 use rand::{seq::IteratorRandom, Rng};
 use serde::{Deserialize, Serialize};
@@ -273,7 +274,8 @@ impl GameController {
             status: self.status.clone(),
             initial_fen: self.initial_fen.clone(),
             moves: self.moves.clone(),
-            current_fen: Fen::from_position(&self.position, EnPassantMode::Legal).to_string(),
+            current_fen: Fen::from_position(&self.position, EnPassantMode::Legal)
+                .to_string(),
             ply: self.moves.len() as u32,
             turn: turn.to_string(),
             white_time,
@@ -882,52 +884,54 @@ fn select_random_epd_entry(reader: impl BufRead) -> Result<OpeningBookSelection,
     })
 }
 
-struct OpeningBookPgnVisitor {
-    selected: Option<OpeningBookSelection>,
-    seen: usize,
+struct OBTags {
+    current_position: Chess,
+    initial_position: Chess,
+    castling_mode: CastlingMode,
+    initial_fen: Option<String>,
+    skip: bool,
+}
+
+struct OBMovetext {
     current_position: Chess,
     initial_position: Chess,
     castling_mode: CastlingMode,
     initial_fen: Option<String>,
     moves: Vec<String>,
-    skip: bool,
+}
+
+struct OpeningBookPgnVisitor {
+    selected: Option<OpeningBookSelection>,
+    seen: usize,
 }
 
 impl OpeningBookPgnVisitor {
     fn new() -> Self {
-        let start = Chess::default();
         Self {
             selected: None,
             seen: 0,
-            current_position: start.clone(),
-            initial_position: start,
-            castling_mode: CastlingMode::Standard,
-            initial_fen: None,
-            moves: Vec::new(),
-            skip: false,
         }
     }
 }
 
 impl Visitor for OpeningBookPgnVisitor {
+    type Tags = OBTags;
+    type Movetext = OBMovetext;
     type Output = Option<OpeningBookSelection>;
-    type Tags = ();
-    type Movetext = ();
 
     fn begin_tags(&mut self) -> ControlFlow<Self::Output, Self::Tags> {
-        let start = Chess::default();
-        self.current_position = start.clone();
-        self.initial_position = start;
-        self.castling_mode = CastlingMode::Standard;
-        self.initial_fen = None;
-        self.moves.clear();
-        self.skip = false;
-        ControlFlow::Continue(())
+        ControlFlow::Continue(OBTags {
+            current_position: Chess::default(),
+            initial_position: Chess::default(),
+            castling_mode: CastlingMode::Standard,
+            initial_fen: None,
+            skip: false,
+        })
     }
 
     fn tag(
         &mut self,
-        _tags: &mut Self::Tags,
+        tags: &mut Self::Tags,
         key: &[u8],
         value: RawTag<'_>,
     ) -> ControlFlow<Self::Output> {
@@ -938,62 +942,67 @@ impl Visitor for OpeningBookPgnVisitor {
                     let parsed_fen: Fen = match fen_text.parse() {
                         Ok(fen) => fen,
                         Err(_) => {
-                            self.skip = true;
+                            tags.skip = true;
                             return ControlFlow::Continue(());
                         }
                     };
-                    self.current_position = position.clone();
-                    self.initial_position = position;
-                    self.castling_mode = CastlingMode::detect(parsed_fen.as_setup());
-                    self.initial_fen = Some(fen_text);
+                    tags.current_position = position.clone();
+                    tags.initial_position = position;
+                    tags.castling_mode = CastlingMode::detect(parsed_fen.as_setup());
+                    tags.initial_fen = Some(fen_text);
                 }
                 Err(_) => {
-                    self.skip = true;
+                    tags.skip = true;
                 }
             }
         }
         ControlFlow::Continue(())
     }
 
-    fn begin_movetext(&mut self, _tags: Self::Tags) -> ControlFlow<Self::Output, Self::Movetext> {
-        if self.skip {
-            ControlFlow::Break(None)
-        } else {
-            ControlFlow::Continue(())
+    fn begin_movetext(
+        &mut self,
+        tags: Self::Tags,
+    ) -> ControlFlow<Self::Output, Self::Movetext> {
+        if tags.skip {
+            return ControlFlow::Break(None);
         }
+        ControlFlow::Continue(OBMovetext {
+            current_position: tags.current_position,
+            initial_position: tags.initial_position,
+            castling_mode: tags.castling_mode,
+            initial_fen: tags.initial_fen,
+            moves: Vec::new(),
+        })
     }
 
     fn san(
         &mut self,
-        _movetext: &mut Self::Movetext,
+        movetext: &mut Self::Movetext,
         san: SanPlus,
     ) -> ControlFlow<Self::Output> {
-        let mv = match san.san.to_move(&self.current_position) {
+        let mv = match san.san.to_move(&movetext.current_position) {
             Ok(mv) => mv,
-            Err(_) => {
-                self.skip = true;
-                return ControlFlow::Continue(());
-            }
+            Err(_) => return ControlFlow::Break(None),
         };
 
-        let uci = UciMove::from_move(mv, self.castling_mode).to_string();
-        self.moves.push(uci);
-        self.current_position.play_unchecked(mv);
+        let uci = UciMove::from_move(mv, movetext.castling_mode).to_string();
+        movetext.moves.push(uci);
+        movetext.current_position.play_unchecked(mv);
         ControlFlow::Continue(())
     }
 
-    fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
-        if self.skip || self.moves.is_empty() {
+    fn end_game(&mut self, movetext: Self::Movetext) -> Self::Output {
+        if movetext.moves.is_empty() {
             return None;
         }
 
-        let initial_fen = self.initial_fen.clone().unwrap_or_else(|| {
-            Fen::from_position(&self.initial_position, EnPassantMode::Legal).to_string()
+        let initial_fen = movetext.initial_fen.unwrap_or_else(|| {
+            Fen::from_position(&movetext.initial_position, EnPassantMode::Legal).to_string()
         });
 
         let candidate = OpeningBookSelection {
             initial_fen,
-            initial_moves: self.moves.clone(),
+            initial_moves: movetext.moves,
         };
 
         self.seen += 1;

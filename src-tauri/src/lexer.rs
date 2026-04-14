@@ -1,13 +1,13 @@
-use pgn_reader::{Nag, RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
+use std::ops::ControlFlow;
+
+use pgn_reader::{Nag, RawTag, Reader, SanPlus, Skip, Visitor};
 use serde::Serialize;
 use specta::Type;
 use std::ops::ControlFlow;
 
 use crate::error::Error;
 
-struct Lexer {
-    tokens: Vec<Token>,
-}
+struct Lexer;
 
 #[derive(Serialize, Clone, Type)]
 #[serde(tag = "type", content = "value")]
@@ -22,60 +22,67 @@ pub enum Token {
 }
 
 impl Visitor for Lexer {
-    type Output = Result<Vec<Token>, String>;
-    type Tags = ();
-    type Movetext = ();
+    type Tags = Vec<Token>;
+    type Movetext = Vec<Token>;
+    type Output = Vec<Token>;
 
     fn begin_tags(&mut self) -> ControlFlow<Self::Output, Self::Tags> {
-        ControlFlow::Continue(())
+        ControlFlow::Continue(Vec::new())
     }
 
     fn tag(
         &mut self,
-        _tags: &mut Self::Tags,
-        key: &[u8],
+        tags: &mut Self::Tags,
+        name: &[u8],
         value: RawTag<'_>,
     ) -> ControlFlow<Self::Output> {
-        self.tokens.push(Token::Header {
-            tag: String::from_utf8_lossy(key).to_string(),
+        tags.push(Token::Header {
+            tag: String::from_utf8_lossy(name).to_string(),
             value: String::from_utf8_lossy(value.as_bytes()).to_string(),
         });
         ControlFlow::Continue(())
     }
 
-    fn begin_movetext(&mut self, _tags: Self::Tags) -> ControlFlow<Self::Output, Self::Movetext> {
+    fn begin_movetext(
+        &mut self,
+        tags: Self::Tags,
+    ) -> ControlFlow<Self::Output, Self::Movetext> {
+        ControlFlow::Continue(tags)
+    }
+
+    fn san(
+        &mut self,
+        movetext: &mut Self::Movetext,
+        san: SanPlus,
+    ) -> ControlFlow<Self::Output> {
+        movetext.push(Token::San(san.to_string()));
         ControlFlow::Continue(())
     }
 
-    fn san(&mut self, _movetext: &mut Self::Movetext, san: SanPlus) -> ControlFlow<Self::Output> {
-        self.tokens.push(Token::San(san.to_string()));
-        ControlFlow::Continue(())
-    }
-
-    fn nag(&mut self, _movetext: &mut Self::Movetext, nag: Nag) -> ControlFlow<Self::Output> {
-        self.tokens.push(Token::Nag(nag.to_string()));
+    fn nag(&mut self, movetext: &mut Self::Movetext, nag: Nag) -> ControlFlow<Self::Output> {
+        movetext.push(Token::Nag(nag.to_string()));
         ControlFlow::Continue(())
     }
 
     fn begin_variation(
         &mut self,
-        _movetext: &mut Self::Movetext,
+        movetext: &mut Self::Movetext,
     ) -> ControlFlow<Self::Output, Skip> {
-        self.tokens.push(Token::ParenOpen);
+        movetext.push(Token::ParenOpen);
         ControlFlow::Continue(Skip(false))
     }
 
-    fn end_variation(&mut self, _movetext: &mut Self::Movetext) -> ControlFlow<Self::Output> {
-        self.tokens.push(Token::ParenClose);
+    fn end_variation(&mut self, movetext: &mut Self::Movetext) -> ControlFlow<Self::Output> {
+        movetext.push(Token::ParenClose);
         ControlFlow::Continue(())
     }
 
     fn comment(
         &mut self,
-        _movetext: &mut Self::Movetext,
-        comment: RawComment<'_>,
+        movetext: &mut Self::Movetext,
+        comment: pgn_reader::RawComment<'_>,
     ) -> ControlFlow<Self::Output> {
-        self.tokens.push(Token::Comment(
+        movetext.push(Token::Comment(
             String::from_utf8_lossy(comment.as_bytes()).to_string(),
         ));
         ControlFlow::Continue(())
@@ -83,26 +90,23 @@ impl Visitor for Lexer {
 
     fn outcome(
         &mut self,
-        _movetext: &mut Self::Movetext,
+        movetext: &mut Self::Movetext,
         outcome: pgn_reader::Outcome,
     ) -> ControlFlow<Self::Output> {
-        self.tokens.push(Token::Outcome(outcome.to_string()));
+        movetext.push(Token::Outcome(outcome.to_string()));
         ControlFlow::Continue(())
     }
 
-    fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
-        Ok(self.tokens.clone())
+    fn end_game(&mut self, movetext: Self::Movetext) -> Self::Output {
+        movetext
     }
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn lex_pgn(pgn: String) -> Result<Vec<Token>, Error> {
-    let mut reader = Reader::new(std::io::Cursor::new(pgn.as_bytes()));
-
-    let mut lexer = Lexer { tokens: Vec::new() };
-
-    reader.read_game(&mut lexer)?;
-
-    Ok(lexer.tokens)
+    let mut reader = Reader::new(pgn.as_bytes());
+    let mut lexer = Lexer;
+    let tokens = reader.read_game(&mut lexer)?.unwrap_or_default();
+    Ok(tokens)
 }
