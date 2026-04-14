@@ -153,13 +153,13 @@ function BoardGame() {
     (players.black.type === "human" && players.white.type === "engine");
 
   const orientation = headers.orientation || "white";
-  const toggleOrientation = () => {
+  const toggleOrientation = useCallback(() => {
     setHeaders({
       ...headers,
       fen: root.fen,
       orientation: orientation === "black" ? "white" : "black",
     });
-  };
+  }, [headers, root.fen, orientation, setHeaders]);
 
   const fetchEngineLogs = useCallback(async () => {
     if (!gameId || !hasEngine) return;
@@ -406,11 +406,14 @@ function BoardGame() {
       if (!gameId || gameState !== "playing") return;
       try {
         await commands.makeGameMove(gameId, uci);
+        if (autoFlipBoard && players.white.type === "human" && players.black.type === "human") {
+          toggleOrientation();
+        }
       } catch (err) {
         console.error("Failed to make move:", err);
       }
     },
-    [gameId, gameState, toggleOrientation],
+    [gameId, gameState, autoFlipBoard, players.white.type, players.black.type, toggleOrientation],
   );
 
   const pendingMovesRef = useRef<{ uci: string; clock: number | null }[] | null>(null);
