@@ -98,12 +98,6 @@ pub enum Error {
 
     #[error("Analysis cancelled")]
     AnalysisCancelled,
-
-    #[error(transparent)]
-    Maia(Box<maia_rust::Error>),
-
-    #[error(transparent)]
-    Ort(Box<ort::Error>),
 }
 
 impl From<std::io::Error> for Error {
@@ -193,18 +187,6 @@ impl From<diesel::r2d2::PoolError> for Error {
 impl From<std::time::SystemTimeError> for Error {
     fn from(value: std::time::SystemTimeError) -> Self {
         Self::SystemTime(Box::new(value))
-    }
-}
-
-impl From<maia_rust::Error> for Error {
-    fn from(value: maia_rust::Error) -> Self {
-        Self::Maia(Box::new(value))
-    }
-}
-
-impl From<ort::Error> for Error {
-    fn from(value: ort::Error) -> Self {
-        Self::Ort(Box::new(value))
     }
 }
 
